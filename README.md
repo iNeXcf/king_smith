@@ -169,6 +169,15 @@ The protocol implementation uses
 unlock sequence is documented by
 [z1-walkingpad-mcp](https://github.com/slandau3/z1-walkingpad-mcp#how-it-works-the-protocol).
 
+For legacy WiLink devices such as the A1 Pro, the integration spaces Bluetooth
+writes by at least the underlying library's minimum interval (currently 690 ms),
+including mode changes and status requests. This works around a timing error in
+`ph4-walkingpad` 1.0.2 that can send consecutive commands too close together.
+Connection establishment uses `bleak-retry-connector` with Home Assistant's
+discovered Bluetooth device. Belt commands themselves are not automatically
+retried. Enable `custom_components.king_smith.wilink` and `ph4_walkingpad.pad`
+debug logging to inspect outgoing commands and incoming WiLink reports.
+
 ## Manual installation
 
 1. Copy `custom_components/king_smith` from this repository into the
