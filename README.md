@@ -82,6 +82,13 @@ size entity. Its range is 0.1–1.0 km/h, its default is 0.5 km/h, and Home Assi
 selected value after a restart. Changes are clamped to the model profile's safe
 speed limits.
 
+While a speed change is still pending, the Increase/Decrease buttons adjust the
+last requested target instead of an older measured speed. Rapid presses are
+calculated in command-queue order. Once a speed report reaches that target,
+subsequent adjustments follow the reported speed again, including changes made
+with the physical remote. Pending targets are cleared on stop, sleep, start,
+disconnect, or a failed speed write; displayed speed remains device-reported.
+
 The separate Sleep button stops the belt if necessary and then puts the Z1 into
 its low-power mode. Wake the Z1 with its physical remote.
 
