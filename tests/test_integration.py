@@ -47,6 +47,7 @@ def controller():
     result.set_speed = AsyncMock(side_effect=set_speed)
     result.start = AsyncMock(return_value=True)
     result.stop = AsyncMock(return_value=True)
+    result.sleep = AsyncMock(return_value=True)
     return result
 
 
@@ -88,12 +89,22 @@ async def test_entities_and_speed_service(hass, entry, controller):
         assert await hass.config_entries.async_setup(entry.entry_id)
         await hass.async_block_till_done()
         states = hass.states.async_all()
-        assert len(states) == 10
+        assert len(states) == 11
         assert len([state for state in states if state.domain == "sensor"]) == 8
+        sleep = next(state for state in states if state.domain == "button")
         speed = next(state for state in states if state.domain == "number")
-        assert speed.attributes["max"] == 6.4
+        assert speed.attributes["min"] == 1.0
+        assert speed.attributes["max"] == 6.0
         assert speed.attributes["step"] == 0.1
-        assert float(speed.state) == 0
+        assert speed.attributes["mode"] == "slider"
+        assert float(speed.state) == 1.0
+        await hass.services.async_call(
+            "button",
+            "press",
+            {"entity_id": sleep.entity_id},
+            blocking=True,
+        )
+        controller.sleep.assert_awaited_once()
         await hass.services.async_call(
             "number",
             "set_value",

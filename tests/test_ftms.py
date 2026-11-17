@@ -106,6 +106,37 @@ async def test_unlock_failure_closes_client():
     disconnect.assert_awaited_once()
 
 
+async def test_z1_sleep_property_command():
+    """Send the documented Z1 sleep property and require a valid acknowledgement."""
+    controller = KingsmithFTMSController("KS-HD-Z1D")
+    client = MagicMock()
+    client.is_connected = True
+
+    async def write(uuid, data, **kwargs):
+        assert uuid == SUPPLEMENT_WRITE_UUID
+        assert data.hex() == "7201030a4000c0"
+        assert kwargs == {"response": False}
+        controller._on_supplement(1, bytearray.fromhex("7281020a00ff"))
+
+    client.write_gatt_char = AsyncMock(side_effect=write)
+    controller._client = client
+    assert await controller.sleep()
+
+
+async def test_z1_sleep_rejects_negative_acknowledgement():
+    """Do not report success when the treadmill rejects the sleep property."""
+    controller = KingsmithFTMSController("KS-HD-Z1D")
+    client = MagicMock()
+    client.is_connected = True
+
+    async def write(_uuid, _data, **_kwargs):
+        controller._on_supplement(1, bytearray.fromhex("7281020a0100"))
+
+    client.write_gatt_char = AsyncMock(side_effect=write)
+    controller._client = client
+    assert not await controller.sleep()
+
+
 def test_invalid_unlock_checksum():
     """Require a complete, correctly checksummed unlock acknowledgement."""
     controller = KingsmithFTMSController("KS-HD-Z1D")

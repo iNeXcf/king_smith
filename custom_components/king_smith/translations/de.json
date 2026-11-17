@@ -23,6 +23,11 @@
     }
   },
   "entity": {
+    "button": {
+      "sleep": {
+        "name": "Ruhezustand"
+      }
+    },
     "sensor": {
       "speed": {
         "name": "Geschwindigkeit"

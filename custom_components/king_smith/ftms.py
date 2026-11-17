@@ -14,6 +14,9 @@ from walkingpad_controller.models import TreadmillStatus
 _LOGGER = logging.getLogger(__name__)
 SUPPLEMENT_NOTIFY_UUID = "24e2521c-f63b-48ed-85be-c5330b00fdf7"
 SUPPLEMENT_WRITE_UUID = "24e2521c-f63b-48ed-85be-c5330d00fdf7"
+PROPERTY_COMMAND = 0x72
+PROPERTY_MODE = 10
+MODE_SLEEP = 2 << 5
 
 
 @dataclass
@@ -35,14 +38,40 @@ class KingsmithFTMSController(FTMSController):
         self._status = KingsmithStatus()
         self._ble_name = ble_name
         self._unlock_event = asyncio.Event()
+        self._property_event = asyncio.Event()
+        self._property_response = b""
 
     def _on_supplement(self, _sender, data: bytearray) -> None:
         """Accept a complete unlock acknowledgement with a valid checksum."""
-        if len(data) < 4 or data[:2] != b"\x71\x80":
+        if len(data) < 4:
             return
         length = data[2] + 4
-        if len(data) >= length and sum(data[: length - 1]) & 0xFF == data[length - 1]:
+        if len(data) < length or sum(data[: length - 1]) & 0xFF != data[length - 1]:
+            return
+        if data[:2] == b"\x71\x80":
             self._unlock_event.set()
+        elif data[:2] == b"\x72\x81":
+            self._property_response = bytes(data[3 : 3 + data[2]])
+            self._property_event.set()
+
+    async def sleep(self) -> bool:
+        """Put a stopped Z1 into its vendor-defined low-power mode."""
+        if self._client is None or not self._client.is_connected:
+            raise BleakError("FTMS client is unavailable")
+        payload = bytes([PROPERTY_COMMAND, 0x01, 0x03, PROPERTY_MODE, MODE_SLEEP, 0])
+        payload += bytes([sum(payload) & 0xFF])
+        self._property_response = b""
+        self._property_event.clear()
+        await self._client.write_gatt_char(
+            SUPPLEMENT_WRITE_UUID, payload, response=False
+        )
+        async with asyncio.timeout(3):
+            await self._property_event.wait()
+        return (
+            len(self._property_response) >= 2
+            and self._property_response[0] == PROPERTY_MODE
+            and self._property_response[1] == 0
+        )
 
     async def _subscribe_notifications(self) -> None:
         """Unlock the Z1 supplement channel before subscribing to FTMS."""
@@ -109,3 +138,9 @@ class KingsmithController(WalkingPadController):
         except BaseException:
             await self._ftms.disconnect()
             raise
+
+    async def sleep(self) -> bool:
+        """Enter Z1 sleep mode through the supplement property channel."""
+        if self._ftms is None:
+            return False
+        return await self._ftms.sleep()

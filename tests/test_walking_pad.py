@@ -23,7 +23,7 @@ def api_and_controller():
     controller.min_speed = 1.0
     controller.max_speed = 6.0
     controller.speed_increment = 0.1
-    for method in ["start", "stop", "set_speed", "switch_mode"]:
+    for method in ["start", "stop", "sleep", "set_speed", "switch_mode"]:
         setattr(controller, method, AsyncMock(return_value=True))
     controller.update_state = AsyncMock()
     controller.disconnect = AsyncMock()
@@ -91,6 +91,28 @@ async def test_zero_speed_stops(api_and_controller):
     await api.change_speed(0)
     controller.stop.assert_awaited_once()
     controller.set_speed.assert_not_awaited()
+
+
+async def test_sleep_stops_a_moving_ftms_pad_first(api_and_controller):
+    """Match the KS Fit exit sequence before entering vendor sleep mode."""
+    api, controller = api_and_controller
+    api._on_status_update(TreadmillStatus(speed=3.3))
+    calls = []
+    controller.stop.side_effect = lambda: calls.append("stop") or True
+    controller.sleep.side_effect = lambda: calls.append("sleep") or True
+    with patch("custom_components.king_smith.walking_pad.asyncio.sleep", AsyncMock()):
+        await api.sleep()
+    assert calls == ["stop", "sleep"]
+
+
+async def test_sleep_uses_standby_on_legacy_pad(api_and_controller):
+    """Keep the equivalent standby action for supported WiLink devices."""
+    api, controller = api_and_controller
+    controller.protocol = ProtocolType.WILINK
+    await api.sleep()
+    controller.switch_mode.assert_awaited_once_with(OperatingMode.STANDBY)
+    controller.update_state.assert_awaited_once()
+    controller.sleep.assert_not_awaited()
 
 
 def test_mutable_library_status_is_snapshotted(api_and_controller):

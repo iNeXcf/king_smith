@@ -201,6 +201,17 @@ class WalkingPadApi:
                 if command == "start" and self._ctrl.protocol == ProtocolType.WILINK:
                     if not await self._ctrl.switch_mode(OperatingMode.MANUAL):
                         raise HomeAssistantError("The treadmill rejected manual mode")
+                if command == "sleep":
+                    if self._ctrl.protocol == ProtocolType.WILINK:
+                        if not await self._ctrl.switch_mode(OperatingMode.STANDBY):
+                            raise HomeAssistantError(
+                                "The treadmill rejected standby mode"
+                            )
+                        await self._ctrl.update_state()
+                        return
+                    if self.moving and not await self._ctrl.stop():
+                        raise HomeAssistantError("The treadmill did not confirm stop")
+                    await asyncio.sleep(0.4)
                 if not await getattr(self._ctrl, command)(*args):
                     raise HomeAssistantError(f"The treadmill did not confirm {command}")
                 if command == "stop" and self._ctrl.protocol == ProtocolType.WILINK:
@@ -222,6 +233,10 @@ class WalkingPadApi:
     async def stop_belt(self) -> None:
         """Stop the belt and end the current session."""
         await self._command("stop")
+
+    async def sleep(self) -> None:
+        """Stop the belt and put the controller into low-power mode."""
+        await self._command("sleep")
 
     async def change_speed(self, speed: float) -> None:
         """Set speed in km/h, mapping zero to an explicit stop."""

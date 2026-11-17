@@ -12,7 +12,7 @@ from .const import CONF_BLE_NAME, DOMAIN
 from .coordinator import WalkingPadCoordinator
 from .walking_pad import WalkingPadApi
 
-PLATFORMS = [Platform.SWITCH, Platform.NUMBER, Platform.SENSOR]
+PLATFORMS = [Platform.BUTTON, Platform.SWITCH, Platform.NUMBER, Platform.SENSOR]
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:

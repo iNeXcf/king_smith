@@ -66,9 +66,10 @@ If the list is empty, check that:
 
 ## Controls and sensors
 
-The switch starts or stops the belt. The number entity controls speed using the
-range and increment reported by the WalkingPad. Setting the speed to `0 km/h`
-stops it; setting a positive valid speed can start a stationary belt.
+The switch starts or stops the belt. The speed slider covers 1.0–6.0 km/h in
+the same 0.1 km/h increments as KS Fit. The separate Sleep button stops the
+belt if necessary and then puts the Z1 into its low-power mode. Wake the Z1
+with its physical remote.
 
 Live sensors include speed, session distance, session duration, steps, and step
 cadence. Values can remain **Unknown** until the first corresponding Bluetooth
