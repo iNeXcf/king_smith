@@ -1,8 +1,64 @@
 {
-    "device_automation": {
-        "trigger_type": {
-            "session_start": "Session Started",
-            "session_done": "Session Completed"
+  "config": {
+    "flow_title": "{name}",
+    "step": {
+      "device": {
+        "title": "Set up WalkingPad",
+        "description": "Select your WalkingPad or enter its Bluetooth address. Close KS Fit so Home Assistant can connect.",
+        "data": {
+          "name": "Name",
+          "mac": "Bluetooth device"
         }
+      }
+    },
+    "error": {
+      "invalid_address": "Enter a valid Bluetooth MAC address.",
+      "invalid_name": "Enter a name.",
+      "device_not_found": "The device is not reachable through a connectable Bluetooth adapter or proxy. Turn it on and close KS Fit.",
+      "unsupported_device": "This Bluetooth name is not supported."
+    },
+    "abort": {
+      "already_configured": "This WalkingPad is already configured.",
+      "not_connectable": "This scanner cannot establish Bluetooth connections."
     }
+  },
+  "entity": {
+    "sensor": {
+      "speed": {
+        "name": "Speed"
+      },
+      "distance": {
+        "name": "Distance"
+      },
+      "duration": {
+        "name": "Duration"
+      },
+      "steps": {
+        "name": "Steps"
+      },
+      "step_cadence": {
+        "name": "Step cadence"
+      },
+      "total_distance": {
+        "name": "Total distance"
+      },
+      "total_duration": {
+        "name": "Total duration"
+      },
+      "total_steps": {
+        "name": "Total steps"
+      }
+    },
+    "number": {
+      "speed": {
+        "name": "Speed"
+      }
+    }
+  },
+  "device_automation": {
+    "trigger_type": {
+      "session_start": "Session started",
+      "session_done": "Session completed"
+    }
+  }
 }

@@ -1,6 +1,6 @@
 {
-    "name": "indiefan/king_smith",
-    "image": "mcr.microsoft.com/devcontainers/python:3.11-bullseye",
+    "name": "koalexbear/king_smith",
+    "image": "mcr.microsoft.com/devcontainers/python:3.14-bookworm",
     "appPort": [
         "8125:8125"
     ],

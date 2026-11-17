@@ -6,6 +6,10 @@
             "local_name": "KS-BL*"
         },
         {
+            "local_name": "KS-HD-Z1D*",
+            "connectable": true
+        },
+        {
             "local_name": "KS-ST-*"
         },
         {
@@ -17,14 +21,15 @@
     ],
     "config_flow": true,
     "dependencies": [
-        "bluetooth"
+        "bluetooth_adapters"
     ],
-    "documentation": "https://github.com/indiefan/king_smith",
+    "documentation": "https://github.com/koalexbear/king_smith",
+    "integration_type": "device",
     "iot_class": "local_polling",
-    "issue_tracker": "https://github.com/indiefan/king_smith/issues",
+    "issue_tracker": "https://github.com/koalexbear/king_smith/issues",
     "requirements": [
-        "bleak>=0.18.0",
-        "ph4-walkingpad>=0.0.7"
+        "walkingpad-controller==0.5.1",
+        "ph4-walkingpad==1.0.2"
     ],
-    "version": "0.1.2"
+    "version": "0.2.0"
 }

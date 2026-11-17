@@ -1,0 +1,111 @@
+"""Adapt walkingpad-controller for KingSmith Z1 supplement initialization."""
+
+from __future__ import annotations
+
+import asyncio
+from dataclasses import dataclass
+import logging
+
+from bleak.exc import BleakError
+from walkingpad_controller import WalkingPadController
+from walkingpad_controller.ftms import FTMSController
+from walkingpad_controller.models import TreadmillStatus
+
+_LOGGER = logging.getLogger(__name__)
+SUPPLEMENT_NOTIFY_UUID = "24e2521c-f63b-48ed-85be-c5330b00fdf7"
+SUPPLEMENT_WRITE_UUID = "24e2521c-f63b-48ed-85be-c5330d00fdf7"
+
+
+@dataclass
+class KingsmithStatus(TreadmillStatus):
+    """Track which optional measurements the device has actually reported."""
+
+    has_speed: bool = False
+    has_distance: bool = False
+    has_duration: bool = False
+    has_steps: bool = False
+
+
+class KingsmithFTMSController(FTMSController):
+    """Add Z1 unlocking and validate packets before library parsing."""
+
+    def __init__(self, ble_name: str) -> None:
+        """Keep the advertised name used to derive the unlock frame."""
+        super().__init__()
+        self._status = KingsmithStatus()
+        self._ble_name = ble_name
+        self._unlock_event = asyncio.Event()
+
+    def _on_supplement(self, _sender, data: bytearray) -> None:
+        """Accept a complete unlock acknowledgement with a valid checksum."""
+        if len(data) < 4 or data[:2] != b"\x71\x80":
+            return
+        length = data[2] + 4
+        if len(data) >= length and sum(data[: length - 1]) & 0xFF == data[length - 1]:
+            self._unlock_event.set()
+
+    async def _subscribe_notifications(self) -> None:
+        """Unlock the Z1 supplement channel before subscribing to FTMS."""
+        if self._client is None:
+            raise BleakError("FTMS client is unavailable")
+        if self._ble_name.startswith("KS-HD-Z1"):
+            services = self._client.services
+            if services.get_characteristic(SUPPLEMENT_WRITE_UUID) is not None:
+                await self._client.start_notify(
+                    SUPPLEMENT_NOTIFY_UUID, self._on_supplement
+                )
+                self._unlock_event.clear()
+                suffix = self._ble_name[-4:].encode("ascii")
+                code = (int.from_bytes(suffix, "little") + 1) & 0xFFFFFFFF
+                payload = b"\x71\x00\x05\x01" + code.to_bytes(4, "little")
+                payload += bytes([sum(payload) & 0xFF])
+                await self._client.write_gatt_char(
+                    SUPPLEMENT_WRITE_UUID, payload, response=False
+                )
+                async with asyncio.timeout(5):
+                    await self._unlock_event.wait()
+                await asyncio.sleep(0.4)
+        await super()._subscribe_notifications()
+
+    def _on_treadmill_data(self, sender, data: bytearray) -> None:
+        """Handle optional speed and reject truncated FTMS notifications."""
+        if len(data) < 2:
+            return
+        flags = int.from_bytes(data[:2], "little")
+        # Field lengths in FTMS flag order. KingSmith steps use two bytes,
+        # with an optional trailing padding byte on some firmware versions.
+        field_sizes = (2, 3, 4, 4, 1, 1, 5, 1, 1, 2, 2, 4, 2)
+        expected = 2 + (0 if flags & 1 else 2)
+        expected += sum(
+            size for bit, size in enumerate(field_sizes, 1) if flags & (1 << bit)
+        )
+        if len(data) < expected:
+            _LOGGER.debug("Ignoring incomplete treadmill packet: %s", data.hex())
+            return
+        self._status.has_speed |= not bool(flags & 1)
+        self._status.has_distance |= bool(flags & (1 << 2))
+        self._status.has_duration |= bool(flags & (1 << 10))
+        self._status.has_steps |= bool(flags & (1 << 13))
+        normalized = bytearray(data)
+        if flags & 1:
+            normalized[:2] = (flags & ~1).to_bytes(2, "little")
+            speed = round(self.status.speed * 100)
+            normalized[2:2] = speed.to_bytes(2, "little")
+        if flags & (1 << 13) and len(data) == expected:
+            normalized.append(0)
+        super()._on_treadmill_data(sender, normalized)
+
+
+class KingsmithController(WalkingPadController):
+    """Select the Z1-capable FTMS backend while retaining WiLink support."""
+
+    async def _connect_ftms(self) -> None:
+        """Use the library backend with supplement initialization."""
+        self._ftms = KingsmithFTMSController(self._ble_device.name or self._name)
+        self._ftms.register_status_callback(self._on_status_update)
+        self._ftms.register_disconnect_callback(self._on_disconnect)
+        try:
+            await self._ftms.connect(self._ble_device)
+        except BaseException:
+            await self._ftms.disconnect()
+            raise

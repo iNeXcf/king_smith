@@ -1,223 +1,233 @@
-"""Walking Pad Api."""
+"""Serialize WalkingPad operations and expose device-reported state."""
+
+from __future__ import annotations
+
 import asyncio
-import logging
+from collections.abc import Callable
+from dataclasses import replace
+import math
 import time
 
 from bleak.backends.device import BLEDevice
+from bleak.exc import BleakError
+from homeassistant.exceptions import HomeAssistantError
+from walkingpad_controller.const import OperatingMode, ProtocolType
+from walkingpad_controller.models import TreadmillStatus
 
-from ph4_walkingpad.pad import Controller, WalkingPad, WalkingPadCurStatus
-
-STATUS_LOCK_ON_CMD_SECONDS = 5
-
-_LOGGER = logging.getLogger(__name__)
+from .ftms import KingsmithController
 
 
 class WalkingPadApi:
-    """Walkingpad device."""
+    """Own one connection and one command queue for a treadmill."""
 
-    def __init__(self, name: str, ble_device: BLEDevice) -> None:
-        """Create a new walking pad api instance."""
-        self._name = name
-        self._ble_device = ble_device
-        self._ctrl = Controller()
-        self._callbacks = []
-        self._status_lock = False
-        self._last_cmd_time = time.time()
-
-        self._connected = False
-        self._moving = False
-        self._speed = 0
-        self._distance = 0
-        self._time = 0
-        self._steps = 0
-        self._step_cadence = 0
-
-        self._last_status = {}
+    def __init__(
+        self,
+        name: str,
+        address: str,
+        ble_name: str,
+        resolve_device: Callable[[], BLEDevice | None],
+    ) -> None:
+        """Initialize the device without opening a connection."""
+        self.name = name
+        self.mac = address
+        self._ble_name = ble_name
+        self._resolve_device = resolve_device
+        self._ctrl: KingsmithController | None = None
+        self._lock = asyncio.Lock()
+        self._callbacks: list[Callable[[TreadmillStatus], None]] = []
+        self._disconnect_callbacks: list[Callable[[], None]] = []
+        self.status: TreadmillStatus | None = None
         self._last_status_time = 0.0
+        self._step_cadence = 0.0
 
-        self._register_controller_callbacks()
-
-    def _register_controller_callbacks(self):
-        self._ctrl.handler_cur_status = self._on_status_update
-
-    def _begin_cmd(self) -> asyncio.Lock:
-        self._status_lock = True
-        return asyncio.Lock()
-
-    async def _end_cmd(self):
-        await asyncio.sleep(0.75)
-        self._last_cmd_time = time.time()
-        self._status_lock = False
-
-    def _on_status_update(self, sender, status: WalkingPadCurStatus) -> None:
-        """Update current state."""
-        # Don't update if we're still running a command or just did (status from device is outdated at first)
-        if (
-            self._status_lock
-            or time.time() - self._last_cmd_time < STATUS_LOCK_ON_CMD_SECONDS
-        ):
-            return
-
-        self._moving = status.speed > 0
-        self._speed = status.speed
-        self._distance = status.dist
-        self._time = status.time
-        self._steps = status.steps
-
-        # only try to calculate cadence if we have all needed infos
-        if  self._moving and self._last_status_time > 0 and self._last_status.speed > 0 and self._last_status.time != status.time:
-            # calculate steps per minute
-            self._step_cadence = round((status.steps - self._last_status.steps) / float(float(status.time - self._last_status.time)/60.0), 2)
-            if self._step_cadence < 0:
-                self._step_cadence = 0
-        else:
-            self._step_cadence = 0
-
-        # store last status msg
-        self._last_status_time = time.time()
-        self._last_status = status
-
-        if len(self._callbacks) > 0:
-            for callback in self._callbacks:
-                callback(status)
-
-
-    def register_status_callback(self, callback) -> None:
-        """Register a status callback."""
-        self._callbacks.append(callback)
+    def _measurement(self, field: str) -> float | int | None:
+        """Return a value only after its field appeared in a device report."""
+        if self.status is None or not getattr(self.status, f"has_{field}", True):
+            return None
+        return getattr(self.status, field)
 
     @property
-    def mac(self):
-        """Mac address."""
-        return self._ble_device.address
+    def connected(self) -> bool:
+        """Return the live connection state."""
+        return self._ctrl is not None and self._ctrl.connected
 
     @property
-    def name(self):
-        """Name."""
-        return self._name
+    def moving(self) -> bool | None:
+        """Return whether the last device report indicates movement."""
+        return self.speed > 0 if self.speed is not None else None
 
     @property
-    def connected(self):
-        """Connected status."""
-        return self._connected
+    def speed(self) -> float | None:
+        """Return the actual speed in km/h."""
+        return self._measurement("speed")
 
     @property
-    def moving(self):
-        """Whether or not the device is currently moving."""
-        return self._moving
+    def distance(self) -> float | None:
+        """Return the session distance in kilometers."""
+        distance = self._measurement("distance")
+        return distance / 1000 if distance is not None else None
 
     @property
-    def speed(self):
-        """The current device speed."""
-        return self._speed
+    def time(self) -> int | None:
+        """Return the session duration in seconds."""
+        return self._measurement("duration")
 
     @property
-    def distance(self):
-        """The current device distance."""
-        return self._distance
+    def steps(self) -> int | None:
+        """Return the device step counter."""
+        return self._measurement("steps")
 
     @property
-    def time(self):
-        """The duration of the current session."""
-        return self._time
-
-    @property
-    def steps(self):
-        """The number of steps taken in the current session."""
-        return self._steps
-
-    @property
-    def step_cadence(self):
-        """The steps cadence in steps per minute based on the current and last value."""
+    def step_cadence(self) -> float | None:
+        """Return cadence after both steps and elapsed time are available."""
+        if self.steps is None or self.time is None:
+            return None
         return self._step_cadence
 
+    @property
+    def min_speed(self) -> float:
+        """Return the minimum running speed in km/h."""
+        return self._ctrl.min_speed if self._ctrl is not None else 0.5
+
+    @property
+    def max_speed(self) -> float:
+        """Return the maximum running speed in km/h."""
+        return self._ctrl.max_speed if self._ctrl is not None else 6.0
+
+    @property
+    def speed_increment(self) -> float:
+        """Return the supported speed increment."""
+        return self._ctrl.speed_increment if self._ctrl is not None else 0.1
+
+    @property
+    def firmware_version(self) -> str | None:
+        """Return the firmware version when available."""
+        if self._ctrl is None:
+            return None
+        return self._ctrl.firmware_version or None
+
+    def register_status_callback(self, callback: Callable) -> Callable[[], None]:
+        """Register a listener and return its removal callback."""
+        self._callbacks.append(callback)
+        return lambda: self._callbacks.remove(callback)
+
+    def register_disconnect_callback(self, callback: Callable) -> Callable[[], None]:
+        """Register a disconnect listener and return its removal callback."""
+        self._disconnect_callbacks.append(callback)
+        return lambda: self._disconnect_callbacks.remove(callback)
+
+    def _on_status_update(self, status: TreadmillStatus) -> None:
+        """Snapshot mutable library status before notifying listeners."""
+        previous = self.status
+        self._step_cadence = 0.0
+        if previous is not None and previous.speed > 0 and status.speed > 0:
+            elapsed = status.duration - previous.duration
+            steps = status.steps - previous.steps
+            fields_known = all(
+                getattr(report, field, True)
+                for report in (previous, status)
+                for field in ("has_steps", "has_duration")
+            )
+            if elapsed > 0 and steps >= 0 and fields_known:
+                self._step_cadence = round(steps * 60 / elapsed, 2)
+        self.status = replace(status)
+        self._last_status_time = time.monotonic()
+        for callback in tuple(self._callbacks):
+            callback(self.status)
+
+    def _on_disconnect(self) -> None:
+        """Notify listeners immediately when the BLE link closes."""
+        for callback in tuple(self._disconnect_callbacks):
+            callback()
+
+    async def _connect(self) -> None:
+        """Connect using a fresh device reference from Home Assistant."""
+        if self.connected:
+            return
+        if self._ctrl is not None:
+            await self._ctrl.disconnect()
+        device = self._resolve_device()
+        if device is None:
+            raise BleakError(f"No connectable Bluetooth source can reach {self.mac}")
+        self.status = None
+        self._step_cadence = 0.0
+        self._ctrl = KingsmithController(device, self._ble_name or device.name)
+        self._ctrl.register_status_callback(self._on_status_update)
+        self._ctrl.register_disconnect_callback(self._on_disconnect)
+        try:
+            await self._ctrl.connect()
+        except BaseException:
+            await self._ctrl.disconnect()
+            raise
+
     async def connect(self) -> None:
-        """Connect the device."""
-        lock = self._begin_cmd()
-        async with lock:
-            await self._ctrl.run(self._ble_device)
-            self._connected = True
-            await self._end_cmd()
+        """Open a connection without moving the belt."""
+        async with self._lock:
+            await self._connect()
 
     async def disconnect(self) -> None:
-        """Disconnect the device."""
-        lock = self._begin_cmd()
-        async with lock:
-            await self._ctrl.disconnect()
-            self._connected = False
-            await self._end_cmd()
+        """Release the BLE connection."""
+        async with self._lock:
+            if self._ctrl is not None:
+                await self._ctrl.disconnect()
 
-    async def turn_on(self) -> None:
-        """Turn on the device."""
-        if self.connected is not True:
-            return
+    async def update_state(self) -> TreadmillStatus | None:
+        """Maintain the connection and poll devices that require it."""
+        async with self._lock:
+            await self._connect()
+            if self._ctrl.protocol == ProtocolType.WILINK:
+                await self._ctrl.update_state()
+            elif self.moving and time.monotonic() - self._last_status_time > 30:
+                await self._ctrl.disconnect()
+                raise BleakError("No treadmill data received for 30 seconds")
+            return self.status
 
-        lock = self._begin_cmd()
-        async with lock:
-            await self._ctrl.switch_mode(WalkingPad.MODE_MANUAL)
-            await self._end_cmd()
-
-    async def turn_off(self) -> None:
-        """Turn off the device."""
-        if self.connected is not True:
-            return
-
-        lock = self._begin_cmd()
-        async with lock:
-            await self._ctrl.switch_mode(WalkingPad.MODE_STANDBY)
-            await self._end_cmd()
+    async def _command(self, command: str, *args: float) -> None:
+        """Execute an entire command sequence under the shared lock."""
+        async with self._lock:
+            try:
+                await self._connect()
+                if command == "set_speed":
+                    speed = args[0]
+                    if not self.min_speed <= speed <= self.max_speed:
+                        raise HomeAssistantError(
+                            f"Running speed must be {self.min_speed}–{self.max_speed} km/h"
+                        )
+                    increments = speed / self.speed_increment
+                    if not math.isclose(increments, round(increments), abs_tol=1e-6):
+                        raise HomeAssistantError(
+                            f"Speed must use increments of {self.speed_increment} km/h"
+                        )
+                if command == "start" and self._ctrl.protocol == ProtocolType.WILINK:
+                    if not await self._ctrl.switch_mode(OperatingMode.MANUAL):
+                        raise HomeAssistantError("The treadmill rejected manual mode")
+                if not await getattr(self._ctrl, command)(*args):
+                    raise HomeAssistantError(f"The treadmill did not confirm {command}")
+                if command == "stop" and self._ctrl.protocol == ProtocolType.WILINK:
+                    if not await self._ctrl.switch_mode(OperatingMode.STANDBY):
+                        raise HomeAssistantError("The treadmill rejected standby mode")
+                if self._ctrl.protocol == ProtocolType.WILINK:
+                    await self._ctrl.update_state()
+            except (BleakError, TimeoutError, RuntimeError) as error:
+                if not self.connected:
+                    self._on_disconnect()
+                raise HomeAssistantError(
+                    f"WalkingPad command failed: {error}"
+                ) from error
 
     async def start_belt(self) -> None:
-        """Start the belt."""
-        if self.connected is not True:
-            return
-
-        lock = self._begin_cmd()
-        async with lock:
-            await self._ctrl.start_belt()
-            self._moving = True
-            await self._end_cmd()
+        """Start the belt at its device-selected starting speed."""
+        await self._command("start")
 
     async def stop_belt(self) -> None:
-        """Stop the belt."""
-        if self.connected is not True:
+        """Stop the belt and end the current session."""
+        await self._command("stop")
+
+    async def change_speed(self, speed: float) -> None:
+        """Set speed in km/h, mapping zero to an explicit stop."""
+        if not math.isfinite(speed) or speed < 0:
+            raise HomeAssistantError("Speed must be a finite, non-negative number")
+        if speed == 0:
+            await self.stop_belt()
             return
-
-        lock = self._begin_cmd()
-        async with lock:
-            await self._ctrl.stop_belt()
-            self._moving = False
-            await self._end_cmd()
-
-    async def change_speed(self, speed: int) -> None:
-        """Change the speed."""
-
-        if self.connected is not True:
-            return
-        lock = self._begin_cmd()
-        async with lock:
-            await self._ctrl.change_speed(speed)
-            self._speed = speed
-            await self._end_cmd()
-
-    async def update_state(self) -> None:
-        """Update device state."""
-        if self.connected is not True:
-            try:
-                await self.connect()
-            except Exception as e:
-                _LOGGER.warn("failed to connect to Walking Pad: %s", e)
-            return
-
-        # Grab the lock so we don't run while another command is running
-        lock = self._begin_cmd()
-        async with lock:
-            try:
-                # Disable status lock so our update triggers a refresh
-                self._status_lock = False
-                await self._ctrl.ask_stats()
-            except Exception as e:
-                _LOGGER.warn("failed to request status update from Walking Pad: %s", e)
-                await self._ctrl.disconnect()
-                self._connected = False
-                # Skip callback so we don't reset debouncer
+        await self._command("set_speed", speed)

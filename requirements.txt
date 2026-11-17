@@ -1,6 +1,14 @@
-colorlog==6.8.2
-homeassistant==2023.8.0
+homeassistant==2026.11.2
 ruff==0.2.2
-pip>=21.0,<24.1
-bleak>=0.18.0
-ph4-walkingpad>=0.0.7
+walkingpad-controller==0.5.1
+ph4-walkingpad==1.0.2
+pytest==9.2.0
+pytest-asyncio==1.5.0
+pytest-timeout==2.4.0
+# Imports and runtime dependencies of Home Assistant's Bluetooth component.
+aiousbwatcher==1.1.2
+serialx==1.15.1
+aiohasupervisor==0.8.1
+bleak==3.0.2
+dbus-fast==5.0.22
+habluetooth==7.1.2
