@@ -21,6 +21,34 @@ from homeassistant.helpers.selector import (
 from .const import CONF_BLE_NAME, DOMAIN
 
 NAME_PATTERNS = ("KS-BL*", "KS-ST-*", "WalkingPad", "KS-HD-Z1D*")
+FTMS_SERVICE_UUID = "00001826-0000-1000-8000-00805f9b34fb"
+
+
+def _advertised_names(info: Any) -> tuple[str, ...]:
+    """Return every Bluetooth name exposed by HA and its scanner backend."""
+    names: list[str] = []
+    for candidate in (
+        getattr(info, "name", None),
+        getattr(getattr(info, "advertisement", None), "local_name", None),
+        getattr(getattr(info, "raw", None), "local_name", None),
+    ):
+        if candidate and candidate not in names:
+            names.append(candidate)
+    return tuple(names)
+
+
+def _supported_ble_name(info: Any) -> str | None:
+    """Return the useful local name, also accepting anonymous FTMS adverts."""
+    names = _advertised_names(info)
+    for name in names:
+        if any(fnmatchcase(name, pattern) for pattern in NAME_PATTERNS):
+            return name
+    service_uuids = {uuid.lower() for uuid in getattr(info, "service_uuids", ())}
+    if FTMS_SERVICE_UUID in service_uuids or "1826" in service_uuids:
+        # Some proxies omit the local name. The selected address is still a
+        # connectable FTMS treadmill and Z1 needs this name for its unlock key.
+        return "KS-HD-Z1D"
+    return None
 
 
 class WalkingpadConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -48,8 +76,8 @@ class WalkingpadConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         await self.async_set_unique_id(dr.format_mac(discovery_info.address))
         self._abort_if_unique_id_configured()
         self._address = discovery_info.address
-        self._ble_name = discovery_info.name
-        self.context["title_placeholders"] = {"name": discovery_info.name}
+        self._ble_name = _supported_ble_name(discovery_info) or discovery_info.name
+        self.context["title_placeholders"] = {"name": self._ble_name}
         return await self.async_step_device()
 
     async def async_step_device(
@@ -72,9 +100,7 @@ class WalkingpadConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 )
                 if info is None:
                     errors["base"] = "device_not_found"
-                elif not any(
-                    fnmatchcase(info.name, pattern) for pattern in NAME_PATTERNS
-                ):
+                elif (ble_name := _supported_ble_name(info)) is None:
                     errors["base"] = "unsupported_device"
                 else:
                     return self.async_create_entry(
@@ -82,15 +108,18 @@ class WalkingpadConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         data={
                             CONF_MAC: address,
                             CONF_NAME: name,
-                            CONF_BLE_NAME: info.name,
+                            CONF_BLE_NAME: ble_name,
                         },
                     )
         options = [
-            {"value": info.address, "label": f"{info.name} ({info.address})"}
+            {
+                "value": info.address,
+                "label": f"{_supported_ble_name(info)} ({info.address})",
+            }
             for info in bluetooth.async_discovered_service_info(
                 self.hass, connectable=True
             )
-            if any(fnmatchcase(info.name, pattern) for pattern in NAME_PATTERNS)
+            if _supported_ble_name(info) is not None
         ]
         address_field = (
             probatio.Required(CONF_MAC, default=self._address)

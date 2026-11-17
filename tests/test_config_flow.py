@@ -58,6 +58,52 @@ async def test_create_discovered_z1(flow):
     assert flow.unique_id == "aa:bb:cc:dd:ee:ff"
 
 
+async def test_create_z1_when_proxy_exposes_local_name_only(flow):
+    """Prefer the actual advertised local name over a proxy device name."""
+    info = SimpleNamespace(
+        address="AA:BB:CC:DD:EE:FF",
+        name="AA-BB-CC-DD-EE-FF",
+        advertisement=SimpleNamespace(local_name="KS-HD-Z1D"),
+        service_uuids=[],
+        connectable=True,
+    )
+    with patch(
+        "custom_components.king_smith.config_flow.bluetooth.async_discovered_service_info",
+        return_value=[info],
+    ), patch(
+        "custom_components.king_smith.config_flow.bluetooth.async_last_service_info",
+        return_value=info,
+    ):
+        result = await flow.async_step_device(
+            {"name": "Desk treadmill", "mac": info.address}
+        )
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    assert result["data"]["ble_name"] == "KS-HD-Z1D"
+
+
+async def test_create_z1_from_anonymous_ftms_advertisement(flow):
+    """Accept a connectable FTMS advert even when a proxy omitted local_name."""
+    info = SimpleNamespace(
+        address="AA:BB:CC:DD:EE:FF",
+        name="AA-BB-CC-DD-EE-FF",
+        advertisement=SimpleNamespace(local_name=None),
+        service_uuids=["00001826-0000-1000-8000-00805F9B34FB"],
+        connectable=True,
+    )
+    with patch(
+        "custom_components.king_smith.config_flow.bluetooth.async_discovered_service_info",
+        return_value=[info],
+    ), patch(
+        "custom_components.king_smith.config_flow.bluetooth.async_last_service_info",
+        return_value=info,
+    ):
+        result = await flow.async_step_device(
+            {"name": "Desk treadmill", "mac": info.address}
+        )
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    assert result["data"]["ble_name"] == "KS-HD-Z1D"
+
+
 async def test_duplicate_is_rejected(flow, hass, entry):
     """Recognize an existing entry when the address uses different casing."""
     hass.config_entries._entries[entry.entry_id] = entry

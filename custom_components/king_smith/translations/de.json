@@ -4,10 +4,10 @@
     "step": {
       "device": {
         "title": "WalkingPad einrichten",
-        "description": "Wähle dein WalkingPad oder gib seine Bluetooth-Adresse ein. Schließe KS Fit, damit Home Assistant eine Verbindung aufbauen kann.",
+        "description": "Schalte das WalkingPad ein, schließe KS Fit und wähle das gefundene Gerät. Die Adresse identifiziert das WalkingPad und wird automatisch eingesetzt; die manuelle Eingabe ist nur ein Fallback.",
         "data": {
           "name": "Name",
-          "mac": "Bluetooth-Gerät"
+          "mac": "WalkingPad"
         }
       }
     },
