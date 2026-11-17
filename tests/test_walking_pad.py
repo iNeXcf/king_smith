@@ -94,6 +94,24 @@ async def test_zero_speed_stops(api_and_controller):
     controller.set_speed.assert_not_awaited()
 
 
+async def test_speed_buttons_use_configured_adjustment(api_and_controller):
+    """Apply the local step size to the device-reported speed."""
+    api, controller = api_and_controller
+    api.speed_adjustment_step = 0.2
+    api._on_status_update(TreadmillStatus(speed=3.3))
+    await api.adjust_speed(1)
+    controller.set_speed.assert_awaited_once_with(3.5)
+
+
+async def test_speed_buttons_stay_within_profile_limits(api_and_controller):
+    """Clamp button changes to the model's safe speed range."""
+    api, controller = api_and_controller
+    api.speed_adjustment_step = 1.0
+    api._on_status_update(TreadmillStatus(speed=6.0))
+    await api.adjust_speed(1)
+    controller.set_speed.assert_awaited_once_with(6.0)
+
+
 async def test_sleep_stops_a_moving_ftms_pad_first(api_and_controller):
     """Match the KS Fit exit sequence before entering vendor sleep mode."""
     api, controller = api_and_controller

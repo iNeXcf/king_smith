@@ -89,15 +89,32 @@ async def test_entities_and_speed_service(hass, entry, controller):
         assert await hass.config_entries.async_setup(entry.entry_id)
         await hass.async_block_till_done()
         states = hass.states.async_all()
-        assert len(states) == 11
+        assert len(states) == 14
         assert len([state for state in states if state.domain == "sensor"]) == 8
-        sleep = next(state for state in states if state.domain == "button")
-        speed = next(state for state in states if state.domain == "number")
+        assert len([state for state in states if state.domain == "button"]) == 3
+        assert len([state for state in states if state.domain == "number"]) == 2
+        sleep = next(
+            state
+            for state in states
+            if state.domain == "button"
+            and state.attributes["friendly_name"].endswith("Sleep")
+        )
+        speed = next(
+            state
+            for state in states
+            if state.domain == "number" and state.attributes["max"] == 6.0
+        )
+        adjustment = next(
+            state
+            for state in states
+            if state.domain == "number" and state.attributes["max"] == 1.0
+        )
         assert speed.attributes["min"] == 1.0
         assert speed.attributes["max"] == 6.0
         assert speed.attributes["step"] == 0.1
         assert speed.attributes["mode"] == "slider"
         assert float(speed.state) == 1.0
+        assert float(adjustment.state) == 0.5
         await hass.services.async_call(
             "button",
             "press",

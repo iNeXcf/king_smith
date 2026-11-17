@@ -24,6 +24,12 @@
   },
   "entity": {
     "button": {
+      "speed_down": {
+        "name": "Decrease speed"
+      },
+      "speed_up": {
+        "name": "Increase speed"
+      },
       "sleep": {
         "name": "Sleep"
       }
@@ -55,6 +61,9 @@
       }
     },
     "number": {
+      "speed_adjustment_step": {
+        "name": "Speed step size"
+      },
       "speed": {
         "name": "Speed"
       }

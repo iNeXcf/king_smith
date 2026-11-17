@@ -42,6 +42,7 @@ class WalkingPadApi:
         self.status: TreadmillStatus | None = None
         self._last_status_time = 0.0
         self._step_cadence = 0.0
+        self.speed_adjustment_step = 0.5
 
     def _measurement(self, field: str) -> float | int | None:
         """Return a value only after its field appeared in a device report."""
@@ -259,3 +260,13 @@ class WalkingPadApi:
             await self.stop_belt()
             return
         await self._command("set_speed", speed)
+
+    async def adjust_speed(self, direction: int) -> None:
+        """Change speed by the user-selected adjustment step."""
+        if direction not in (-1, 1):
+            raise ValueError("Direction must be -1 or 1")
+        current = max(self.min_speed, self.speed or 0)
+        target = current + direction * self.speed_adjustment_step
+        target = min(self.max_speed, max(self.min_speed, target))
+        increments = round(target / self.speed_increment)
+        await self.change_speed(round(increments * self.speed_increment, 10))

@@ -67,9 +67,14 @@ If the list is empty, check that:
 ## Controls and sensors
 
 The switch starts or stops the belt. The speed slider covers 1.0–6.0 km/h in
-the same 0.1 km/h increments as KS Fit. The separate Sleep button stops the
-belt if necessary and then puts the Z1 into its low-power mode. Wake the Z1
-with its physical remote.
+the same 0.1 km/h increments as KS Fit. The Increase speed and Decrease speed
+buttons adjust that value using the configurable Speed step size entity. Its
+range is 0.1–1.0 km/h, its default is 0.5 km/h, and Home Assistant restores the
+selected value after a restart. Changes are clamped to the model profile's safe
+speed limits.
+
+The separate Sleep button stops the belt if necessary and then puts the Z1 into
+its low-power mode. Wake the Z1 with its physical remote.
 
 Live sensors include speed, session distance, session duration, steps, and step
 cadence. Values can remain **Unknown** until the first corresponding Bluetooth
@@ -79,17 +84,68 @@ cannot be recovered unless the WalkingPad reports that history later.
 
 ## Adding another WalkingPad model
 
-Model-specific behavior lives in `custom_components/king_smith/device_profile.py`.
-Each profile declares Bluetooth name patterns, speed limits, supported controls,
-the sleep strategy, and whether the proprietary supplement unlock is required.
-Discovery saves the stable profile ID in new config entries; entries created by
-older releases remain compatible because their profile is inferred from the
-saved Bluetooth name.
+Before adding a profile, collect the exact model name, Bluetooth local name,
+firmware version, protocol or GATT service UUIDs, minimum and maximum speed,
+supported speed increment, and the behavior of start, stop, and sleep. Values
+from a manual or verified hardware test are preferred over values copied from a
+similar-looking model.
 
-Add a data-only profile when a model uses an existing protocol and command
-strategy. A new protocol adapter is only needed when its GATT services or command
-frames differ. Unknown proprietary controls must not be enabled until their safe
-limits and command semantics have been verified on real hardware.
+Model-specific behavior lives in
+`custom_components/king_smith/device_profile.py`. To add a model that uses an
+already supported protocol:
+
+1. Add a uniquely named `DeviceProfile`. Use a stable, lowercase `profile_id`;
+   a user-facing `model`; the narrowest reliable `name_patterns`; and only the
+   capabilities confirmed on hardware.
+2. Set `min_speed`, `max_speed`, and `speed_step` to the device's actual safe
+   values. Do not reuse another model's limits without verification.
+3. Select an existing `sleep_strategy` only if that exact command sequence has
+   been tested. Set `supplement_unlock` only when the model requires the same
+   supplement-channel initialization.
+4. Add the profile to `DEVICE_PROFILES`. Put specific name patterns before broad
+   fallback profiles so the intended model wins matching.
+5. Add the model's Bluetooth local-name pattern to the `bluetooth` section of
+   `custom_components/king_smith/manifest.json`. Without this entry, Home
+   Assistant may not start discovery for the integration.
+6. Add profile matching, safe-limit, capability, and backward-compatibility
+   coverage to `tests/test_device_profile.py`. Add discovery coverage to
+   `tests/test_config_flow.py`.
+7. Test every enabled control on the physical WalkingPad, starting with the belt
+   stopped and at the minimum speed. Include the advertised name, firmware
+   version, and test results in the pull request.
+
+For example, the profile itself follows this shape:
+
+```python
+EXAMPLE_PROFILE = DeviceProfile(
+    profile_id="example_model",
+    model="WalkingPad Example",
+    name_patterns=("KS-EXAMPLE-*",),
+    capabilities=frozenset({Capability.SPEED_CONTROL}),
+    min_speed=1.0,
+    max_speed=6.0,
+    speed_step=0.1,
+)
+```
+
+Discovery stores the stable profile ID in new config entries. Entries created by
+older releases remain compatible because their profile is inferred from the
+saved Bluetooth name. The first profile whose name pattern matches is selected.
+
+A data-only profile is sufficient only when the model uses an existing protocol
+and command strategy. Add or extend a protocol adapter when its GATT services,
+unlock sequence, packet format, or command frames differ. A new anonymous FTMS
+model also needs explicit discovery logic because unnamed FTMS advertisements
+currently fall back to the Z1 profile. Unknown proprietary controls must remain
+disabled until their command semantics and safe limits have been verified on
+real hardware.
+
+Before submitting a change, run:
+
+```text
+PYTHONPATH=. ruff check custom_components tests
+PYTHONPATH=. pytest -q
+```
 
 ## Troubleshooting
 
