@@ -14,6 +14,7 @@ from homeassistant.exceptions import HomeAssistantError
 from walkingpad_controller.const import OperatingMode, ProtocolType
 from walkingpad_controller.models import TreadmillStatus
 
+from .device_profile import Capability, DeviceProfile, SleepStrategy, resolve_profile
 from .ftms import KingsmithController
 
 
@@ -26,12 +27,14 @@ class WalkingPadApi:
         address: str,
         ble_name: str,
         resolve_device: Callable[[], BLEDevice | None],
+        profile: DeviceProfile | None = None,
     ) -> None:
         """Initialize the device without opening a connection."""
         self.name = name
         self.mac = address
         self._ble_name = ble_name
         self._resolve_device = resolve_device
+        self.profile = profile or resolve_profile(None, ble_name)
         self._ctrl: KingsmithController | None = None
         self._lock = asyncio.Lock()
         self._callbacks: list[Callable[[TreadmillStatus], None]] = []
@@ -87,16 +90,22 @@ class WalkingPadApi:
     @property
     def min_speed(self) -> float:
         """Return the minimum running speed in km/h."""
+        if self.profile.min_speed is not None:
+            return self.profile.min_speed
         return self._ctrl.min_speed if self._ctrl is not None else 0.5
 
     @property
     def max_speed(self) -> float:
         """Return the maximum running speed in km/h."""
+        if self.profile.max_speed is not None:
+            return self.profile.max_speed
         return self._ctrl.max_speed if self._ctrl is not None else 6.0
 
     @property
     def speed_increment(self) -> float:
         """Return the supported speed increment."""
+        if self.profile.speed_step is not None:
+            return self.profile.speed_step
         return self._ctrl.speed_increment if self._ctrl is not None else 0.1
 
     @property
@@ -151,7 +160,9 @@ class WalkingPadApi:
             raise BleakError(f"No connectable Bluetooth source can reach {self.mac}")
         self.status = None
         self._step_cadence = 0.0
-        self._ctrl = KingsmithController(device, self._ble_name or device.name)
+        self._ctrl = KingsmithController(
+            device, self._ble_name or device.name, self.profile
+        )
         self._ctrl.register_status_callback(self._on_status_update)
         self._ctrl.register_disconnect_callback(self._on_disconnect)
         try:
@@ -202,7 +213,9 @@ class WalkingPadApi:
                     if not await self._ctrl.switch_mode(OperatingMode.MANUAL):
                         raise HomeAssistantError("The treadmill rejected manual mode")
                 if command == "sleep":
-                    if self._ctrl.protocol == ProtocolType.WILINK:
+                    if not self.profile.supports(Capability.SLEEP):
+                        raise HomeAssistantError("Sleep is not supported by this model")
+                    if self.profile.sleep_strategy == SleepStrategy.STANDBY:
                         if not await self._ctrl.switch_mode(OperatingMode.STANDBY):
                             raise HomeAssistantError(
                                 "The treadmill rejected standby mode"

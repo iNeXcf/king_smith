@@ -54,6 +54,7 @@ async def test_create_discovered_z1(flow):
         "name": "Desk treadmill",
         "mac": info.address,
         "ble_name": "KS-HD-Z1D",
+        "device_profile": "z1",
     }
     assert flow.unique_id == "aa:bb:cc:dd:ee:ff"
 

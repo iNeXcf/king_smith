@@ -26,6 +26,7 @@ class WalkingPadEntity(CoordinatorEntity[WalkingPadCoordinator]):
         return DeviceInfo(
             identifiers={(DOMAIN, api.mac)},
             manufacturer="King Smith",
+            model=api.profile.model,
             name=api.name,
             sw_version=api.firmware_version,
         )

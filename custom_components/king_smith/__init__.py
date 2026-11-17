@@ -8,8 +8,9 @@ from homeassistant.const import CONF_MAC, CONF_NAME, Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
 
-from .const import CONF_BLE_NAME, DOMAIN
+from .const import CONF_BLE_NAME, CONF_DEVICE_PROFILE, DOMAIN
 from .coordinator import WalkingPadCoordinator
+from .device_profile import resolve_profile
 from .walking_pad import WalkingPadApi
 
 PLATFORMS = [Platform.BUTTON, Platform.SWITCH, Platform.NUMBER, Platform.SENSOR]
@@ -19,19 +20,23 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Connect once before creating entities for the treadmill."""
     address = entry.data[CONF_MAC]
     name = entry.data.get(CONF_NAME, "WalkingPad")
+    ble_name = entry.data.get(CONF_BLE_NAME, "")
+    profile = resolve_profile(entry.data.get(CONF_DEVICE_PROFILE), ble_name)
     api = WalkingPadApi(
         name,
         address,
-        entry.data.get(CONF_BLE_NAME, ""),
+        ble_name,
         lambda: bluetooth.async_ble_device_from_address(
             hass, address, connectable=True
         ),
+        profile,
     )
     device = dr.async_get(hass).async_get_or_create(
         config_entry_id=entry.entry_id,
         identifiers={(DOMAIN, address)},
         name=name,
         manufacturer="King Smith",
+        model=profile.model,
     )
     coordinator = WalkingPadCoordinator(hass, entry, api, device.id)
     try:

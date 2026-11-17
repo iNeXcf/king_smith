@@ -9,6 +9,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .coordinator import WalkingPadCoordinator
+from .device_profile import Capability
 from .entity import WalkingPadEntity
 
 PARALLEL_UPDATES = 0
@@ -18,7 +19,9 @@ async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
     """Set up the speed control."""
-    async_add_entities([WalkingPadSpeed(entry.runtime_data)])
+    coordinator = entry.runtime_data
+    if coordinator.api.profile.supports(Capability.SPEED_CONTROL):
+        async_add_entities([WalkingPadSpeed(coordinator)])
 
 
 class WalkingPadSpeed(WalkingPadEntity, NumberEntity):
@@ -27,13 +30,13 @@ class WalkingPadSpeed(WalkingPadEntity, NumberEntity):
     _attr_translation_key = "speed"
     _attr_native_unit_of_measurement = UnitOfSpeed.KILOMETERS_PER_HOUR
     _attr_mode = NumberMode.SLIDER
-    _attr_native_min_value = 1.0
-    _attr_native_max_value = 6.0
-    _attr_native_step = 0.1
 
     def __init__(self, coordinator: WalkingPadCoordinator) -> None:
         """Initialize the speed entity."""
         super().__init__(coordinator, "speed")
+        self._attr_native_min_value = coordinator.api.min_speed
+        self._attr_native_max_value = coordinator.api.max_speed
+        self._attr_native_step = coordinator.api.speed_increment
 
     @property
     def native_value(self) -> float | None:

@@ -11,6 +11,8 @@ from walkingpad_controller import WalkingPadController
 from walkingpad_controller.ftms import FTMSController
 from walkingpad_controller.models import TreadmillStatus
 
+from .device_profile import Capability, DeviceProfile, resolve_profile
+
 _LOGGER = logging.getLogger(__name__)
 SUPPLEMENT_NOTIFY_UUID = "24e2521c-f63b-48ed-85be-c5330b00fdf7"
 SUPPLEMENT_WRITE_UUID = "24e2521c-f63b-48ed-85be-c5330d00fdf7"
@@ -32,11 +34,12 @@ class KingsmithStatus(TreadmillStatus):
 class KingsmithFTMSController(FTMSController):
     """Add Z1 unlocking and validate packets before library parsing."""
 
-    def __init__(self, ble_name: str) -> None:
+    def __init__(self, ble_name: str, profile: DeviceProfile | None = None) -> None:
         """Keep the advertised name used to derive the unlock frame."""
         super().__init__()
         self._status = KingsmithStatus()
         self._ble_name = ble_name
+        self._profile = profile or resolve_profile(None, ble_name)
         self._unlock_event = asyncio.Event()
         self._property_event = asyncio.Event()
         self._property_response = b""
@@ -56,6 +59,8 @@ class KingsmithFTMSController(FTMSController):
 
     async def sleep(self) -> bool:
         """Put a stopped Z1 into its vendor-defined low-power mode."""
+        if not self._profile.supports(Capability.SLEEP):
+            return False
         if self._client is None or not self._client.is_connected:
             raise BleakError("FTMS client is unavailable")
         payload = bytes([PROPERTY_COMMAND, 0x01, 0x03, PROPERTY_MODE, MODE_SLEEP, 0])
@@ -77,7 +82,7 @@ class KingsmithFTMSController(FTMSController):
         """Unlock the Z1 supplement channel before subscribing to FTMS."""
         if self._client is None:
             raise BleakError("FTMS client is unavailable")
-        if self._ble_name.startswith("KS-HD-Z1"):
+        if self._profile.supplement_unlock:
             services = self._client.services
             if services.get_characteristic(SUPPLEMENT_WRITE_UUID) is not None:
                 await self._client.start_notify(
@@ -128,9 +133,18 @@ class KingsmithFTMSController(FTMSController):
 class KingsmithController(WalkingPadController):
     """Select the Z1-capable FTMS backend while retaining WiLink support."""
 
+    def __init__(
+        self, ble_device, name: str | None = None, profile: DeviceProfile | None = None
+    ) -> None:
+        """Initialize with the profile selected during Bluetooth discovery."""
+        super().__init__(ble_device, name)
+        self._profile = profile or resolve_profile(None, name or ble_device.name or "")
+
     async def _connect_ftms(self) -> None:
         """Use the library backend with supplement initialization."""
-        self._ftms = KingsmithFTMSController(self._ble_device.name or self._name)
+        self._ftms = KingsmithFTMSController(
+            self._ble_device.name or self._name, self._profile
+        )
         self._ftms.register_status_callback(self._on_status_update)
         self._ftms.register_disconnect_callback(self._on_disconnect)
         try:

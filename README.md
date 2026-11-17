@@ -77,6 +77,20 @@ report arrives. Total distance, duration, and steps are restored after a Home
 Assistant restart. Sessions completed entirely while Home Assistant is offline
 cannot be recovered unless the WalkingPad reports that history later.
 
+## Adding another WalkingPad model
+
+Model-specific behavior lives in `custom_components/king_smith/device_profile.py`.
+Each profile declares Bluetooth name patterns, speed limits, supported controls,
+the sleep strategy, and whether the proprietary supplement unlock is required.
+Discovery saves the stable profile ID in new config entries; entries created by
+older releases remain compatible because their profile is inferred from the
+saved Bluetooth name.
+
+Add a data-only profile when a model uses an existing protocol and command
+strategy. A new protocol adapter is only needed when its GATT services or command
+frames differ. Unknown proprietary controls must not be enabled until their safe
+limits and command semantics have been verified on real hardware.
+
 ## Troubleshooting
 
 Enable debug logging for this integration from its Home Assistant integration

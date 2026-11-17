@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from fnmatch import fnmatchcase
 import re
 from typing import Any
 
@@ -18,9 +17,9 @@ from homeassistant.helpers.selector import (
     SelectSelectorMode,
 )
 
-from .const import CONF_BLE_NAME, DOMAIN
+from .const import CONF_BLE_NAME, CONF_DEVICE_PROFILE, DOMAIN
+from .device_profile import Z1_PROFILE, DeviceProfile, profile_for_name
 
-NAME_PATTERNS = ("KS-BL*", "KS-ST-*", "WalkingPad", "KS-HD-Z1D*")
 FTMS_SERVICE_UUID = "00001826-0000-1000-8000-00805f9b34fb"
 
 
@@ -37,18 +36,23 @@ def _advertised_names(info: Any) -> tuple[str, ...]:
     return tuple(names)
 
 
-def _supported_ble_name(info: Any) -> str | None:
-    """Return the useful local name, also accepting anonymous FTMS adverts."""
+def _supported_device(info: Any) -> tuple[DeviceProfile, str] | None:
+    """Return the matching profile and useful local Bluetooth name."""
     names = _advertised_names(info)
     for name in names:
-        if any(fnmatchcase(name, pattern) for pattern in NAME_PATTERNS):
-            return name
+        if profile := profile_for_name(name):
+            return profile, name
     service_uuids = {uuid.lower() for uuid in getattr(info, "service_uuids", ())}
     if FTMS_SERVICE_UUID in service_uuids or "1826" in service_uuids:
-        # Some proxies omit the local name. The selected address is still a
-        # connectable FTMS treadmill and Z1 needs this name for its unlock key.
-        return "KS-HD-Z1D"
+        # Some proxies omit the local name. Z1 is currently the only registered
+        # FTMS profile and needs its canonical name to derive the unlock key.
+        return Z1_PROFILE, Z1_PROFILE.anonymous_ftms_name or Z1_PROFILE.model
     return None
+
+
+def _supported_ble_name(info: Any) -> str | None:
+    """Return the useful name of a supported Bluetooth device."""
+    return match[1] if (match := _supported_device(info)) else None
 
 
 class WalkingpadConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -60,6 +64,7 @@ class WalkingpadConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Initialize discovery data for all flow entry points."""
         self._address: str | None = None
         self._ble_name = ""
+        self._profile: DeviceProfile | None = None
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
@@ -76,7 +81,8 @@ class WalkingpadConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         await self.async_set_unique_id(dr.format_mac(discovery_info.address))
         self._abort_if_unique_id_configured()
         self._address = discovery_info.address
-        self._ble_name = _supported_ble_name(discovery_info) or discovery_info.name
+        match = _supported_device(discovery_info)
+        self._profile, self._ble_name = match or (None, discovery_info.name)
         self.context["title_placeholders"] = {"name": self._ble_name}
         return await self.async_step_device()
 
@@ -100,15 +106,17 @@ class WalkingpadConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 )
                 if info is None:
                     errors["base"] = "device_not_found"
-                elif (ble_name := _supported_ble_name(info)) is None:
+                elif (match := _supported_device(info)) is None:
                     errors["base"] = "unsupported_device"
                 else:
+                    profile, ble_name = match
                     return self.async_create_entry(
                         title=name,
                         data={
                             CONF_MAC: address,
                             CONF_NAME: name,
                             CONF_BLE_NAME: ble_name,
+                            CONF_DEVICE_PROFILE: profile.profile_id,
                         },
                     )
         options = [

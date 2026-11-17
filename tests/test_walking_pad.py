@@ -12,6 +12,7 @@ from walkingpad_controller.const import OperatingMode, ProtocolType
 from walkingpad_controller.models import TreadmillStatus
 
 from custom_components.king_smith.walking_pad import WalkingPadApi
+from custom_components.king_smith.device_profile import LEGACY_WILINK_PROFILE
 
 
 @pytest.fixture
@@ -108,6 +109,7 @@ async def test_sleep_stops_a_moving_ftms_pad_first(api_and_controller):
 async def test_sleep_uses_standby_on_legacy_pad(api_and_controller):
     """Keep the equivalent standby action for supported WiLink devices."""
     api, controller = api_and_controller
+    api.profile = LEGACY_WILINK_PROFILE
     controller.protocol = ProtocolType.WILINK
     await api.sleep()
     controller.switch_mode.assert_awaited_once_with(OperatingMode.STANDBY)
@@ -137,7 +139,7 @@ async def test_reconnect_resolves_current_adapter():
     resolve = MagicMock(side_effect=[first, second])
     controllers = []
 
-    def create(device, name):
+    def create(device, name, profile):
         controller = MagicMock()
         controller.connected = False
 
@@ -150,6 +152,7 @@ async def test_reconnect_resolves_current_adapter():
         controller.connect = AsyncMock(side_effect=connect)
         controller.disconnect = AsyncMock(side_effect=disconnect)
         controllers.append(controller)
+        assert profile.profile_id == "z1"
         return controller
 
     api = WalkingPadApi("Z1", first.address, first.name, resolve)
