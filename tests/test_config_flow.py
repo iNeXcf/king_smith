@@ -32,10 +32,13 @@ async def test_manual_entry_point(flow):
     result["data_schema"]({"name": "My Z1", "mac": "AA:BB:CC:DD:EE:FF"})
 
 
-async def test_create_discovered_z1(flow):
+@pytest.mark.parametrize(
+    ("ble_name", "profile_id"), [("KS-HD-Z1D", "z1"), ("KS-ST-A1P", "a1_pro")]
+)
+async def test_create_discovered_walkingpad(flow, ble_name, profile_id):
     """Store the advertised name separately from the user's friendly name."""
     info = SimpleNamespace(
-        address="AA:BB:CC:DD:EE:FF", name="KS-HD-Z1D", connectable=True
+        address="AA:BB:CC:DD:EE:FF", name=ble_name, connectable=True
     )
     with patch(
         "custom_components.king_smith.config_flow.bluetooth.async_discovered_service_info",
@@ -53,18 +56,23 @@ async def test_create_discovered_z1(flow):
     assert result["data"] == {
         "name": "Desk treadmill",
         "mac": info.address,
-        "ble_name": "KS-HD-Z1D",
-        "device_profile": "z1",
+        "ble_name": ble_name,
+        "device_profile": profile_id,
     }
     assert flow.unique_id == "aa:bb:cc:dd:ee:ff"
 
 
-async def test_create_z1_when_proxy_exposes_local_name_only(flow):
+@pytest.mark.parametrize(
+    ("ble_name", "profile_id"), [("KS-HD-Z1D", "z1"), ("KS-ST-A1P", "a1_pro")]
+)
+async def test_create_walkingpad_when_proxy_exposes_local_name_only(
+    flow, ble_name, profile_id
+):
     """Prefer the actual advertised local name over a proxy device name."""
     info = SimpleNamespace(
         address="AA:BB:CC:DD:EE:FF",
         name="AA-BB-CC-DD-EE-FF",
-        advertisement=SimpleNamespace(local_name="KS-HD-Z1D"),
+        advertisement=SimpleNamespace(local_name=ble_name),
         service_uuids=[],
         connectable=True,
     )
@@ -79,7 +87,8 @@ async def test_create_z1_when_proxy_exposes_local_name_only(flow):
             {"name": "Desk treadmill", "mac": info.address}
         )
     assert result["type"] == FlowResultType.CREATE_ENTRY
-    assert result["data"]["ble_name"] == "KS-HD-Z1D"
+    assert result["data"]["ble_name"] == ble_name
+    assert result["data"]["device_profile"] == profile_id
 
 
 async def test_create_z1_from_anonymous_ftms_advertisement(flow):

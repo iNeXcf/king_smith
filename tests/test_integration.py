@@ -10,7 +10,7 @@ from bleak.backends.device import BLEDevice
 from bleak.exc import BleakError
 from homeassistant import loader
 from homeassistant.config_entries import ConfigEntryState
-from walkingpad_controller.const import ProtocolType
+from walkingpad_controller.const import OperatingMode, ProtocolType
 from walkingpad_controller.models import TreadmillStatus
 
 
@@ -48,6 +48,8 @@ def controller():
     result.start = AsyncMock(return_value=True)
     result.stop = AsyncMock(return_value=True)
     result.sleep = AsyncMock(return_value=True)
+    result.switch_mode = AsyncMock(return_value=True)
+    result.update_state = AsyncMock()
     return result
 
 
@@ -75,10 +77,23 @@ async def prepare(hass, entry):
     hass.config_entries._entries[entry.entry_id] = entry
 
 
-async def test_entities_and_speed_service(hass, entry, controller):
+@pytest.mark.parametrize(
+    ("ble_name", "min_speed", "protocol"),
+    [
+        ("KS-HD-Z1D", 1.0, ProtocolType.FTMS),
+        ("KS-ST-A1P", 0.5, ProtocolType.WILINK),
+    ],
+)
+async def test_entities_and_speed_service(
+    hass, entry, controller, ble_name, min_speed, protocol
+):
     """Create all entities and control speed through the real HA service."""
     await prepare(hass, entry)
-    device = BLEDevice("AA:BB:CC:DD:EE:FF", "KS-HD-Z1D", {})
+    hass.config_entries.async_update_entry(
+        entry, data={**entry.data, "ble_name": ble_name}
+    )
+    controller.protocol = protocol
+    device = BLEDevice("AA:BB:CC:DD:EE:FF", ble_name, {})
     with patch(
         "custom_components.king_smith.walking_pad.KingsmithController",
         return_value=controller,
@@ -109,11 +124,11 @@ async def test_entities_and_speed_service(hass, entry, controller):
             for state in states
             if state.domain == "number" and state.attributes["max"] == 1.0
         )
-        assert speed.attributes["min"] == 1.0
+        assert speed.attributes["min"] == min_speed
         assert speed.attributes["max"] == 6.0
         assert speed.attributes["step"] == 0.1
         assert speed.attributes["mode"] == "slider"
-        assert float(speed.state) == 1.0
+        assert float(speed.state) == min_speed
         assert float(adjustment.state) == 0.5
         await hass.services.async_call(
             "button",
@@ -121,7 +136,11 @@ async def test_entities_and_speed_service(hass, entry, controller):
             {"entity_id": sleep.entity_id},
             blocking=True,
         )
-        controller.sleep.assert_awaited_once()
+        if protocol == ProtocolType.WILINK:
+            controller.switch_mode.assert_awaited_once_with(OperatingMode.STANDBY)
+            controller.sleep.assert_not_awaited()
+        else:
+            controller.sleep.assert_awaited_once()
         await hass.services.async_call(
             "number",
             "set_value",

@@ -10,6 +10,10 @@
             "connectable": true
         },
         {
+            "local_name": "KS-ST-A1P*",
+            "connectable": true
+        },
+        {
             "local_name": "KS-ST-*"
         },
         {

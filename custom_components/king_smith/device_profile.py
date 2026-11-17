@@ -58,6 +58,17 @@ Z1_PROFILE = DeviceProfile(
     anonymous_ftms_name="KS-HD-Z1D",
 )
 
+A1_PRO_PROFILE = DeviceProfile(
+    profile_id="a1_pro",
+    model="WalkingPad A1 Pro",
+    name_patterns=("KS-ST-A1P*",),
+    capabilities=frozenset({Capability.SPEED_CONTROL, Capability.SLEEP}),
+    min_speed=0.5,
+    max_speed=6.0,
+    speed_step=0.1,
+    sleep_strategy=SleepStrategy.STANDBY,
+)
+
 LEGACY_WILINK_PROFILE = DeviceProfile(
     profile_id="legacy_wilink",
     model="WalkingPad",
@@ -66,7 +77,7 @@ LEGACY_WILINK_PROFILE = DeviceProfile(
     sleep_strategy=SleepStrategy.STANDBY,
 )
 
-DEVICE_PROFILES = (Z1_PROFILE, LEGACY_WILINK_PROFILE)
+DEVICE_PROFILES = (Z1_PROFILE, A1_PRO_PROFILE, LEGACY_WILINK_PROFILE)
 PROFILES_BY_ID = {profile.profile_id: profile for profile in DEVICE_PROFILES}
 
 

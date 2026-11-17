@@ -12,6 +12,15 @@ Z1 advertised as `KS-HD-Z1D`. It targets Home Assistant 2026.11.2 or newer.
 The original integration also supports the C2 and A1 Pro through the legacy
 WiLink protocol.
 
+The A1 Pro advertised as `KS-ST-A1P` has a dedicated model profile with a
+0.5–6.0 km/h speed range, 0.1 km/h speed increments, and WiLink standby support.
+The controls use the existing WiLink implementation, with the speed range from
+the [A1 Pro specifications](https://www.walkingpad.nl/en/products/kingsmith-walkingpad-a1-pro-folding-treadmill).
+Verification with this fork on a physical A1 Pro is still pending.
+Its Bluetooth name is also accepted with a trailing device suffix. Older entries
+without a saved profile are identified from their stored Bluetooth name. Entries
+with an explicitly saved profile keep that selection.
+
 ## Requirements
 
 - Home Assistant 2026.11.2 or newer.
@@ -36,14 +45,14 @@ HACS and choose **Redownload** if the new version is not shown immediately.
 
 You normally do **not** need to know or type a MAC address.
 
-1. Power on the Z1 and fully close KS Fit.
+1. Power on the WalkingPad and fully close KS Fit.
 2. Wait up to 30 seconds so the local adapter or a Bluetooth proxy can report an
    advertisement.
 3. Open **Settings → Devices & services**. If Home Assistant shows a discovered
    **King Smith Walking Pad**, select **Configure**.
 4. Otherwise select **Add integration → King Smith Walking Pad**.
-5. Choose `KS-HD-Z1D (…)` from the **WalkingPad** drop-down, assign a friendly
-   name, and submit the form.
+5. Choose `KS-HD-Z1D (…)` for the Z1 or `KS-ST-A1P (…)` for the A1 Pro from the
+   **WalkingPad** drop-down, assign a friendly name, and submit the form.
 
 The value in parentheses is the Bluetooth address detected by Home Assistant.
 It identifies the physical device across the local adapter and all proxies. The
@@ -53,8 +62,8 @@ not need to obtain it yourself when the device appears in the list.
 Manual address entry is only a fallback for installations where Home Assistant
 can reach the device but has not yet displayed it in the drop-down. Find the
 address under **Settings → Devices & services → Bluetooth → Advertisement
-monitor**, locate the entry whose local name is `KS-HD-Z1D`, and copy its
-Bluetooth address. Do not enter the Raspberry Pi's address, the proxy's address,
+monitor**, locate the entry whose local name is `KS-HD-Z1D` or `KS-ST-A1P`, and
+copy its Bluetooth address. Do not enter the Raspberry Pi's address, the proxy's address,
 or the address of a phone.
 
 If the list is empty, check that:
@@ -66,10 +75,10 @@ If the list is empty, check that:
 
 ## Controls and sensors
 
-The switch starts or stops the belt. The speed slider covers 1.0–6.0 km/h in
-the same 0.1 km/h increments as KS Fit. The Increase speed and Decrease speed
-buttons adjust that value using the configurable Speed step size entity. Its
-range is 0.1–1.0 km/h, its default is 0.5 km/h, and Home Assistant restores the
+The switch starts or stops the belt. The speed slider covers 1.0–6.0 km/h on the
+Z1 and 0.5–6.0 km/h on the A1 Pro, in 0.1 km/h increments. The Increase speed
+and Decrease speed buttons adjust that value using the configurable Speed step
+size entity. Its range is 0.1–1.0 km/h, its default is 0.5 km/h, and Home Assistant restores the
 selected value after a restart. Changes are clamped to the model profile's safe
 speed limits.
 
